@@ -1,8 +1,8 @@
-# Patch KOReader "ora no" per la sincronizzazione dei progressi
+# Patch KOReader "interrompi" per la sincronizzazione dei progressi
 
 Questa repo contiene:
 
-- `2-kosync-ora-no-v2.lua`: la patch vera e propria.
+- `2-kosync-interrompi-v3.lua`: la patch vera e propria.
 - `README.md`: questo file. Spiega cosa fa la patch, come installarla e, in fondo, contiene istruzioni per Claude o un altro assistente AI.
 - `LICENSE`: licenza AGPL-3.0, la stessa di KOReader.
 
@@ -17,9 +17,9 @@ Se non c'è una rete disponibile, per esempio quando sei in giro, compare il pop
 ## 2. Cosa fa la patch
 
 1. **Pausa breve.** Se riapri il lettore entro **5 minuti** da quando l'hai bloccato, non scarica niente e riprendi subito a leggere.
-2. **"Ora no".** Quando KOReader vorrebbe accendere il Wi-Fi per scaricare la posizione (apertura di un libro, oppure riapertura dopo più di 5 minuti), *prima* di accenderlo mostra per **3 secondi** l'avviso:
+2. **"Interrompi".** Quando KOReader vorrebbe accendere il Wi-Fi per scaricare la posizione (apertura di un libro, oppure riapertura dopo più di 5 minuti), *prima* di accenderlo mostra per **3 secondi** l'avviso:
    > Sincronizzo la posizione…
-   > Tocca per saltare (ora no).
+   > Tocca per interrompere.
    - **Non tocchi niente:** sincronizza normalmente.
    - **Tocchi l'avviso:** torni subito a leggere, senza Wi-Fi e senza download.
 3. **Chiusura invariata.** Quando blocchi il lettore, KOReader prova comunque a connettersi e a inviare la posizione, come fa senza patch. Se non trova la rete spegne il Wi-Fi e mette la posizione in coda, poi la invia da solo alla prossima connessione riuscita.
@@ -44,8 +44,8 @@ L'avviso compare solo se il Wi-Fi è spento. Se il lettore è già online, la si
    - **Kindle:** `koreader/` nella cartella principale del Kindle.
    - **Altri dispositivi:** la cartella dove si trovano `reader.lua` e la cartella `plugins/` di KOReader.
 3. Dentro quella cartella crea, se non esiste già, una cartella chiamata **`patches`**.
-4. Copia dentro `patches` il file **`2-kosync-ora-no-v2.lua`**, lasciando il nome così com'è. Il `2-` iniziale è necessario: dice a KOReader quando caricare la patch.
-   Se hai già una versione precedente (per esempio `2-kosync-ora-no.lua`), **cancellala**: nella cartella `patches` deve esserci una sola versione della patch.
+4. Copia dentro `patches` il file **`2-kosync-interrompi-v3.lua`**, lasciando il nome così com'è. Il `2-` iniziale è necessario: dice a KOReader quando caricare la patch.
+   Se hai già una versione precedente (per esempio `2-kosync-ora-no.lua` o `2-kosync-ora-no-v2.lua`), **cancellala**: nella cartella `patches` deve esserci una sola versione della patch.
 5. Espelli l'e-reader dal computer.
 6. In KOReader: **menu ☰ → Esci → Riavvia KOReader**.
 7. Controlla le impostazioni della sezione 3.
@@ -61,7 +61,7 @@ Usa un libro aperto. Puoi fare tutto a casa: l'avviso compare prima che il Wi-Fi
 3. **Pausa lunga:** bloccalo e riaprilo dopo più di 5 minuti. Compare l'avviso. Non toccarlo: dopo 3 secondi si connette e sincronizza.
 4. **Chiusura:** leggi qualche pagina e blocca il lettore. A casa si connette, invia la posizione e va in standby. Su un altro dispositivo sincronizzato trovi la posizione aggiornata.
 
-Nel log di KOReader (`crash.log`, nella stessa cartella di KOReader) la patch scrive righe che iniziano con **`KOSync ora-no:`**, utili per capire cosa è successo.
+Nel log di KOReader (`crash.log`, nella stessa cartella di KOReader) la patch scrive righe che iniziano con **`KOSync interrompi:`**, utili per capire cosa è successo.
 
 ## 6. Personalizzare o togliere
 
@@ -71,9 +71,9 @@ Nel log di KOReader (`crash.log`, nella stessa cartella di KOReader) la patch sc
   local ATTESA = 3           -- secondi
   ```
   Modifica i numeri, salva e riavvia KOReader.
-- **Togliere del tutto:** cancella `2-kosync-ora-no-v2.lua` dalla cartella `patches` e riavvia KOReader.
+- **Togliere del tutto:** cancella `2-kosync-interrompi-v3.lua` dalla cartella `patches` e riavvia KOReader.
 
-Se il Mac crea un file `._2-kosync-ora-no-v2.lua` accanto alla patch, puoi ignorarlo: KOReader non lo considera.
+Se il Mac crea un file `._2-kosync-interrompi-v3.lua` accanto alla patch, puoi ignorarlo: KOReader non lo considera.
 
 ---
 
@@ -81,11 +81,11 @@ Se il Mac crea un file `._2-kosync-ora-no-v2.lua` accanto alla patch, puoi ignor
 
 > Questa sezione è scritta per l'assistente a cui l'utente ha caricato questi file.
 
-**Contesto.** `2-kosync-ora-no-v2.lua` è una *user patch* di KOReader. KOReader esegue all'avvio, con `dofile`, i file in `koreader/patches/` il cui nome inizia con `2-`. Questa patch usa `userpatch.registerPatchPluginFunc("kosync", fn)` per modificare la classe del plugin KOSync ogni volta che viene istanziato, cioè a ogni libro aperto. Non modifica nessun file di KOReader.
+**Contesto.** `2-kosync-interrompi-v3.lua` è una *user patch* di KOReader. KOReader esegue all'avvio, con `dofile`, i file in `koreader/patches/` il cui nome inizia con `2-`. Questa patch usa `userpatch.registerPatchPluginFunc("kosync", fn)` per modificare la classe del plugin KOSync ogni volta che viene istanziato, cioè a ogni libro aperto. Non modifica nessun file di KOReader.
 
 **Cosa sostituisce (wrapper che chiamano sempre l'originale):**
 
-- `KOSync.getProgress(self, ensure_networking, interactive, ...)`: quando `ensure_networking == true`, `interactive == false`, il dispositivo non è online (`NetworkMgr:isOnline()`) e l'account è configurato, mostra un `InfoMessage` con `timeout = 3`. Sull'istanza vengono sovrascritti `onTapClose` e `onAnyKeyPressed` per segnare il tocco come "saltato". Nel `dismiss_callback`, se l'utente non ha toccato, pianifica con `UIManager:scheduleIn(0.5, ...)` il `getProgress` originale; se ha toccato, non fa nulla. **Importante:** non chiamare `getProgress` direttamente dentro `dismiss_callback`. Il callback gira dentro `InfoMessage:onCloseWidget`, mentre l'avviso viene smontato, e la connessione chiama `UIManager:forceRePaint()`: KOReader prova a ridisegnare l'avviso già liberato e va in crash (`textboxwidget.lua: attempt to index field '_bb' (a nil value)`). Era un bug della prima versione. È questo il punto che evita il blocco: su Kobo e Kindle `NetworkMgr:turnOnWifiAndWaitForConnection` → `turnOnWifi` → `reconnectOrShowNetworkMenu` è **bloccante** (scansione e attesa fino a circa 15 s in un ciclo con `usleep`), quindi il popup "Connecting to Wi-Fi…" non può essere chiuso mentre è attivo. La scelta va fatta prima di accendere il Wi-Fi.
+- `KOSync.getProgress(self, ensure_networking, interactive, ...)`: quando `ensure_networking == true`, `interactive == false`, il dispositivo non è online (`NetworkMgr:isOnline()`) e l'account è configurato, mostra un `InfoMessage` con `timeout = 3`. Sull'istanza vengono sovrascritti `onTapClose` e `onAnyKeyPressed` per segnare il tocco come "interrotto". Nel `dismiss_callback`, se l'utente non ha toccato, pianifica con `UIManager:scheduleIn(0.5, ...)` il `getProgress` originale; se ha toccato, non fa nulla. **Importante:** non chiamare `getProgress` direttamente dentro `dismiss_callback`. Il callback gira dentro `InfoMessage:onCloseWidget`, mentre l'avviso viene smontato, e la connessione chiama `UIManager:forceRePaint()`: KOReader prova a ridisegnare l'avviso già liberato e va in crash (`textboxwidget.lua: attempt to index field '_bb' (a nil value)`). Era un bug della prima versione. È questo il punto che evita il blocco: su Kobo e Kindle `NetworkMgr:turnOnWifiAndWaitForConnection` → `turnOnWifi` → `reconnectOrShowNetworkMenu` è **bloccante** (scansione e attesa fino a circa 15 s in un ciclo con `usleep`), quindi il popup "Connecting to Wi-Fi…" non può essere chiuso mentre è attivo. La scelta va fatta prima di accendere il Wi-Fi.
 - `KOSync._onSuspend`: salva `os.time()` in una variabile locale del file, condivisa tra le istanze del plugin, poi chiama l'originale. L'invio alla chiusura resta invariato.
 - `KOSync._onResume`: se sono passati meno di `PAUSA_BREVE` secondi dall'ultimo suspend, ritorna senza fare nulla; altrimenti chiama l'originale, il cui download passa dal `getProgress` modificato.
 - `_onSuspend` e `_onResume` vengono assegnati a `self.onSuspend` e `self.onResume` da `KOSync:registerEvents()` in `onReaderReady`, quindi dopo la patch: per questo basta modificarli sulla classe.
@@ -100,7 +100,7 @@ Se il Mac crea un file `._2-kosync-ora-no-v2.lua` accanto alla patch, puoi ignor
 
 Se i nomi sono cambiati, adatta i wrapper mantenendo la stessa logica.
 
-**Per il debug:** cerca in `crash.log` le righe `KOSync ora-no:` (`patch applicata`, `download saltato dall'utente`, `nessun tocco, sincronizzo`, `riaperto dopo N s, niente download`) e i messaggi di NetworkMgr (`turnOnWifiAndWaitForConnection: Connection failed!`, `Wi-Fi successfully restored`).
+**Per il debug:** cerca in `crash.log` le righe `KOSync interrompi:` (`patch applicata`, `sincronizzazione interrotta dall'utente`, `nessun tocco, sincronizzo`, `riaperto dopo N s, niente download`) e i messaggi di NetworkMgr (`turnOnWifiAndWaitForConnection: Connection failed!`, `Wi-Fi successfully restored`).
 
 **Comportamento voluto dall'autore**, da mantenere se modifichi la patch:
 
@@ -112,6 +112,7 @@ Se i nomi sono cambiati, adatta i wrapper mantenendo la stessa logica.
 
 ## Versioni
 
+- **v3**: il testo dell'avviso diventa "Tocca per interrompere." (prima "Tocca per saltare (ora no)."); file rinominato in `2-kosync-interrompi-v3.lua`.
 - **v2**: corretto un crash ("Don't Panic!") che si verificava quando si lasciavano passare i 3 secondi dell'avviso senza toccarlo.
 - **v1**: prima versione.
 
