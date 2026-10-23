@@ -1,5 +1,5 @@
 --[[
-2-kosync-ora-no.lua
+2-kosync-ora-no-v2.lua  (versione 2: corretto il crash quando si lasciava scadere l'avviso)
 Patch per il plugin "Sincronizzazione progressi" (KOSync) di KOReader (testata su v2026.07.2)
 
 Obiettivo: l'apertura della lettura non deve mai restare bloccata dal Wi-Fi.

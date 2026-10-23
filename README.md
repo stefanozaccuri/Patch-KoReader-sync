@@ -2,7 +2,7 @@
 
 Questa repo contiene:
 
-- `2-kosync-ora-no.lua`: la patch vera e propria.
+- `2-kosync-ora-no-v2.lua`: la patch vera e propria.
 - `README.md`: questo file. Spiega cosa fa la patch, come installarla e, in fondo, contiene istruzioni per Claude o un altro assistente AI.
 - `LICENSE`: licenza AGPL-3.0, la stessa di KOReader.
 
@@ -44,7 +44,8 @@ L'avviso compare solo se il Wi-Fi è spento. Se il lettore è già online, la si
    - **Kindle:** `koreader/` nella cartella principale del Kindle.
    - **Altri dispositivi:** la cartella dove si trovano `reader.lua` e la cartella `plugins/` di KOReader.
 3. Dentro quella cartella crea, se non esiste già, una cartella chiamata **`patches`**.
-4. Copia dentro `patches` il file **`2-kosync-ora-no.lua`**, lasciando il nome così com'è. Il `2-` iniziale è necessario: dice a KOReader quando caricare la patch.
+4. Copia dentro `patches` il file **`2-kosync-ora-no-v2.lua`**, lasciando il nome così com'è. Il `2-` iniziale è necessario: dice a KOReader quando caricare la patch.
+   Se hai già una versione precedente (per esempio `2-kosync-ora-no.lua`), **cancellala**: nella cartella `patches` deve esserci una sola versione della patch.
 5. Espelli l'e-reader dal computer.
 6. In KOReader: **menu ☰ → Esci → Riavvia KOReader**.
 7. Controlla le impostazioni della sezione 3.
@@ -70,9 +71,9 @@ Nel log di KOReader (`crash.log`, nella stessa cartella di KOReader) la patch sc
   local ATTESA = 3           -- secondi
   ```
   Modifica i numeri, salva e riavvia KOReader.
-- **Togliere del tutto:** cancella `2-kosync-ora-no.lua` dalla cartella `patches` e riavvia KOReader.
+- **Togliere del tutto:** cancella `2-kosync-ora-no-v2.lua` dalla cartella `patches` e riavvia KOReader.
 
-Se il Mac crea un file `._2-kosync-ora-no.lua` accanto alla patch, puoi ignorarlo: KOReader non lo considera.
+Se il Mac crea un file `._2-kosync-ora-no-v2.lua` accanto alla patch, puoi ignorarlo: KOReader non lo considera.
 
 ---
 
@@ -80,7 +81,7 @@ Se il Mac crea un file `._2-kosync-ora-no.lua` accanto alla patch, puoi ignorarl
 
 > Questa sezione è scritta per l'assistente a cui l'utente ha caricato questi file.
 
-**Contesto.** `2-kosync-ora-no.lua` è una *user patch* di KOReader. KOReader esegue all'avvio, con `dofile`, i file in `koreader/patches/` il cui nome inizia con `2-`. Questa patch usa `userpatch.registerPatchPluginFunc("kosync", fn)` per modificare la classe del plugin KOSync ogni volta che viene istanziato, cioè a ogni libro aperto. Non modifica nessun file di KOReader.
+**Contesto.** `2-kosync-ora-no-v2.lua` è una *user patch* di KOReader. KOReader esegue all'avvio, con `dofile`, i file in `koreader/patches/` il cui nome inizia con `2-`. Questa patch usa `userpatch.registerPatchPluginFunc("kosync", fn)` per modificare la classe del plugin KOSync ogni volta che viene istanziato, cioè a ogni libro aperto. Non modifica nessun file di KOReader.
 
 **Cosa sostituisce (wrapper che chiamano sempre l'originale):**
 
@@ -106,6 +107,13 @@ Se i nomi sono cambiati, adatta i wrapper mantenendo la stessa logica.
 - L'apertura della lettura non deve mai restare bloccata dal Wi-Fi.
 - La chiusura deve continuare a inviare la posizione. Se non c'è rete, va bene che provi e poi spenga il Wi-Fi.
 - Il "no" vale solo per quella volta: alla riapertura successiva vale di nuovo la regola dei 5 minuti e poi l'avviso.
+
+---
+
+## Versioni
+
+- **v2**: corretto un crash ("Don't Panic!") che si verificava quando si lasciavano passare i 3 secondi dell'avviso senza toccarlo.
+- **v1**: prima versione.
 
 ---
 
