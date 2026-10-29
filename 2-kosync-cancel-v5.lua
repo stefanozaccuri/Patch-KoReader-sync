@@ -18,9 +18,11 @@ and no reading position must ever be lost while offline.
 4. OFFLINE QUEUE (new in v5): books closed while offline (for example one you finish
    on the go before starting the next) are queued by KOSync. The plugin used to
    throw the queue away even when sending it failed, so the finished book never
-   reached the server. Now an entry is removed only once the server has accepted
-   it, and the queue is sent before the position of the open book, i.e. before
-   Wi-Fi is turned off again on sleep.
+   reached the server. Now, for each queued book, the server's position is read
+   first: if the server is further on (or newer), e.g. because you finished the book
+   on another device, the queued position is dropped; otherwise it is sent. An entry
+   leaves the queue only after one of these, and the queue is handled before the
+   position of the open book, i.e. before Wi-Fi is turned off again on sleep.
 
 Requirements: Network -> "Action when Wi-Fi is off" = Turn on,
               Progress sync -> "Auto sync" enabled.
@@ -96,7 +98,8 @@ userpatch.registerPatchPluginFunc("kosync", function(KOSync)
     -- Send the offline queue. Replaces KOSync:drainQueue, which judged success with
     -- pcall(client.update_progress): that never fails (KOSyncClient catches every
     -- error and reports it through the callback), so the queue was emptied even when
-    -- nothing had been sent. Here an entry is dropped only on a 200 from the server.
+    -- nothing had been sent. Here an entry leaves the queue only once the server has
+    -- accepted it, or once the server turned out to be ahead of it.
     KOSync.drainQueue = function(self)
         if not self.settings.username or not self.settings.userkey then return end
         local KOSyncQueue = require("KOSyncQueue")
@@ -104,31 +107,56 @@ userpatch.registerPatchPluginFunc("kosync", function(KOSync)
         if #queue == 0 then return end
 
         local KOSyncClient = require("KOSyncClient")
-        -- The open book's live position is newer than anything queued for it
-        local current = self.ui and self.ui.document and self:getDocumentDigest()
-        local remaining = {}
-        local sent = 0
-        for i, item in ipairs(queue) do
-            if item.document == current then
-                item.progress = self:getLastProgress()
-                item.percentage = self:getLastPercent()
-            end
-            local client = KOSyncClient:new{
+        local function newClient()
+            return KOSyncClient:new{
                 custom_url = self.settings.custom_server,
                 service_spec = self.path .. "/api.json"
             }
-            -- Without the Turbo looper (the default) the request is synchronous and the
-            -- callback has run by the time update_progress returns. If it has not, the
-            -- entry is simply kept and sent again next time.
-            local accepted = false
-            pcall(client.update_progress, client,
-                self.settings.username, self.settings.userkey,
-                item.document, item.metadata, item.progress, item.percentage,
-                item.device, item.device_id,
-                function(ok) accepted = ok end)
-            if accepted then
-                sent = sent + 1
-            else
+        end
+        -- The open book is not sent from the queue: its live position is pushed by
+        -- the plugin itself (on sleep, on close, every few pages).
+        local current = self.ui and self.ui.document and self:getDocumentDigest()
+        local remaining = {}
+        local sent, skipped = 0, 0
+        for i, item in ipairs(queue) do
+            -- Without the Turbo looper (the default) requests are synchronous and the
+            -- callback has run by the time the call returns. If it has not, the entry
+            -- is simply kept and handled again next time.
+            local done = item.document == current
+            if not done then
+                -- Ask the server first: the book may have been read further, or more
+                -- recently, on another device (e.g. finished there while offline too).
+                local reached, server = false, nil
+                local client = newClient()
+                pcall(client.get_progress, client,
+                    self.settings.username, self.settings.userkey, item.document,
+                    function(ok, body)
+                        reached = ok
+                        server = type(body) == "table" and body or nil
+                    end)
+                if reached and server and tonumber(server.percentage) then
+                    -- The server's timestamp is when it received the position, so a
+                    -- timestamp older than our entry means the server copy is older.
+                    -- Otherwise keep whichever is further into the book.
+                    local server_older = (tonumber(server.timestamp) or 0) < (item.queued_at or 0)
+                    if not server_older and tonumber(server.percentage) >= (item.percentage or 0) then
+                        logger.info("KOSync cancel: server is ahead for", item.document,
+                            server.percentage, ">=", item.percentage, "- queued position dropped")
+                        skipped = skipped + 1
+                        done = true
+                    end
+                end
+                if reached and not done then
+                    client = newClient()
+                    pcall(client.update_progress, client,
+                        self.settings.username, self.settings.userkey,
+                        item.document, item.metadata, item.progress, item.percentage,
+                        item.device, item.device_id,
+                        function(ok) done = ok end)
+                    if done then sent = sent + 1 end
+                end
+            end
+            if not done then
                 -- Server not reachable: keep this entry and the following ones
                 for j = i, #queue do
                     table.insert(remaining, queue[j])
@@ -137,7 +165,7 @@ userpatch.registerPatchPluginFunc("kosync", function(KOSync)
             end
         end
         KOSyncQueue:save(remaining)
-        logger.info("KOSync cancel: queue sent", sent, "kept", #remaining)
+        logger.info("KOSync cancel: queue sent", sent, "dropped", skipped, "kept", #remaining)
     end
 
     -- Every push of the open book first sends the queue, while the network is up.

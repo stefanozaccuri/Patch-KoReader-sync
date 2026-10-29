@@ -24,7 +24,11 @@ If no network is available, for example when you are out, the **"Connecting to W
    - **Tap the message:** sync is cancelled and you are back to reading at once, with no Wi-Fi and no download.
 3. **Sleep is unchanged.** When you put the reader to sleep, KOReader still tries to connect and push your position, as it does without the patch. If there is no network, it turns Wi-Fi off and queues the position, then sends it automatically on the next successful connection.
 
-4. **Books finished offline are no longer lost.** If you close a book without a network (for example you finish it on the go and start the next one), KOSync puts its position in a queue to send later. Without the patch the plugin emptied that queue even when sending had failed, typically when you put the reader to sleep at home: it connected, pushed the *new* book, turned Wi-Fi off, and only then tried to send the queue, with no network. The finished book never reached the server. With the patch a queued position is deleted only once the server has accepted it, and the queue is always sent *before* the open book's position, while Wi-Fi is still on.
+4. **Books finished offline are no longer lost.** If you close a book without a network (for example you finish it on the go and start the next one), KOSync puts its position in a queue to send later. Without the patch the plugin emptied that queue even when sending had failed, typically when you put the reader to sleep at home: it connected, pushed the *new* book, turned Wi-Fi off, and only then tried to send the queue, with no network. The finished book never reached the server. With the patch, for each queued book the reader first asks the server where you are:
+   - if the server is further on, or got a position *after* this one was queued (for example you finished the book on another device), the queued position is dropped, so an old position never overwrites a newer one;
+   - otherwise it is sent.
+
+   A position leaves the queue only after one of the two, and the queue is handled *before* the open book's position, while Wi-Fi is still on. If the server cannot be reached, everything stays queued for next time.
 
 The manual menu commands (*Push progress from this device now*, *Pull progress from other devices now*) are not affected and work as always.
 
@@ -93,7 +97,7 @@ If your Mac creates a `._2-kosync-cancel-v5.lua` file next to the patch, you can
   - This is what prevents the freeze: on Kobo and Kindle, `NetworkMgr:turnOnWifiAndWaitForConnection` → `turnOnWifi` → `reconnectOrShowNetworkMenu` is **blocking** (a network scan, then a wait of up to about 15 s in a `usleep` loop), so the "Connecting to Wi-Fi…" popup cannot be dismissed while it is up. The choice has to be made before Wi-Fi is turned on.
 - `KOSync._onSuspend`: stores `os.time()` in a file-local variable shared across plugin instances, then calls the original. Pushing on sleep is unchanged.
 - `KOSync._onResume`: if fewer than `SHORT_PAUSE` seconds have passed since the last suspend, it returns without doing anything; otherwise it calls the original, whose download goes through the wrapped `getProgress`.
-- `KOSync.drainQueue` (**replaced**, not wrapped): in v2026.07.2 the original sends each queued item with `pcall(client.update_progress, ...)` and treats `true` as success. `KOSyncClient:update_progress` catches every error inside its own coroutine and reports it only through the callback, so the pcall is always `true` and the queue (`settings/kosync_queue.lua`) was emptied even when nothing was sent. The replacement uses a new `KOSyncClient` per item, counts an item as sent only when the callback gets `ok == true` (HTTP 200), stops at the first failure and saves the unsent items back. Queued items for the open book are sent with its live position. Without the Turbo looper (the default) the request is synchronous, so the callback has run when `update_progress` returns; if it has not, the item is kept and resent later.
+- `KOSync.drainQueue` (**replaced**, not wrapped): in v2026.07.2 the original sends each queued item with `pcall(client.update_progress, ...)` and treats `true` as success. `KOSyncClient:update_progress` catches every error inside its own coroutine and reports it only through the callback, so the pcall is always `true` and the queue (`settings/kosync_queue.lua`) was emptied even when nothing was sent. The replacement handles each item with a fresh `KOSyncClient`: it first calls `get_progress` for that document. If the server has a `percentage` and its `timestamp` (time of receipt on the server) is not older than the item's `queued_at`, and the server percentage is `>=` the queued one, the item is dropped (another device is ahead or newer). Otherwise it calls `update_progress` and counts the item as done only when the callback gets `ok == true` (HTTP 200). It stops at the first unreachable request and saves the unhandled items back. Queued items for the open book are dropped: the plugin pushes its live position anyway. Without the Turbo looper (the default) the request is synchronous, so the callback has run when `update_progress` returns; if it has not, the item is kept and resent later.
 - `KOSync.updateProgress`: when `NetworkMgr:isOnline()`, it calls `self:drainQueue()` first, then the original. This matters on sleep: `_onSuspend` → `updateProgress(true, false, true)` connects through `willRerunWhenOnline`, reruns `self:updateProgress` (now online), pushes and immediately calls `NetworkMgr:disableWifi()`. The plugin's own drain is scheduled 0.5 s after `NetworkConnected`, so it used to run with Wi-Fi already off.
 - `_onSuspend` and `_onResume` are assigned to `self.onSuspend` and `self.onResume` by `KOSync:registerEvents()` in `onReaderReady`, i.e. after the patch has run, so patching them on the class is enough.
 
@@ -107,20 +111,20 @@ If your Mac creates a `._2-kosync-cancel-v5.lua` file next to the patch, you can
 
 If names have changed, adapt the wrappers and keep the same logic.
 
-**For debugging:** look in `crash.log` for `KOSync cancel:` lines (`patch applied`, `sync cancelled by the user`, `no tap, syncing`, `woke up after N s, no download`, `queue sent N kept M`) and for NetworkMgr messages (`turnOnWifiAndWaitForConnection: Connection failed!`, `Wi-Fi successfully restored`).
+**For debugging:** look in `crash.log` for `KOSync cancel:` lines (`patch applied`, `sync cancelled by the user`, `no tap, syncing`, `woke up after N s, no download`, `queue sent N dropped D kept M`, `server is ahead for <digest> ... queued position dropped`) and for NetworkMgr messages (`turnOnWifiAndWaitForConnection: Connection failed!`, `Wi-Fi successfully restored`).
 
 **Intended behaviour,** to keep if you change the patch:
 
 - Opening a book or waking the reader must never be blocked by Wi-Fi.
 - Sleep must still push the position. Without a network, it is fine for it to try and then turn Wi-Fi off.
-- A position queued offline must never be dropped before the server has accepted it.
+- A position queued offline must never be dropped before the server has accepted it, unless the server already holds a further or newer position for that book.
 - A cancel only applies that one time: on the next wake-up, the 5-minute rule and then the message apply again.
 
 ---
 
 ## Versions
 
-- **v5**: positions queued offline (for example a book finished on the go) are no longer lost. The queue is emptied only for entries the server accepted, and it is sent before the open book's position, while Wi-Fi is still on. File renamed to `2-kosync-cancel-v5.lua`.
+- **v5**: positions queued offline (for example a book finished on the go) are no longer lost. Before sending a queued book, the server's position is checked: if another device is further on or newer, the queued position is dropped instead of overwriting it. Entries leave the queue only after that, and the queue is handled before the open book's position, while Wi-Fi is still on. File renamed to `2-kosync-cancel-v5.lua`.
 - **v4**: everything in English (code, comments, log lines, message: "Tap to cancel."). The message text is now a setting at the top of the file, so it can be translated. File renamed to `2-kosync-cancel-v4.lua`.
 - **v3**: message changed to "Tocca per interrompere." (Italian); file renamed to `2-kosync-interrompi-v3.lua`.
 - **v2**: fixed a crash ("Don't Panic!") that happened when the 3-second message was left to time out without tapping it.
