@@ -1,4 +1,4 @@
-# KOReader "tap to cancel" patch for progress sync
+# KOReader progress sync patch: "tap to cancel" and no lost positions
 
 This repository contains:
 
@@ -14,6 +14,8 @@ In KOReader, with **automatic progress sync** enabled (the *Progress sync* / KOS
 
 If no network is available, for example when you are out, the **"Connecting to Wi-Fi…"** popup appears and the reader is stuck for 15–40 seconds. The popup cannot be dismissed, so you cannot read until the attempt fails.
 
+There is a second problem. If you finish a book while offline and start the next one, the finished book's position is queued but may never reach the server: when you get back online, only the new book is synced, and the server still shows the old book as unfinished.
+
 ## 2. What the patch does
 
 1. **Short pause.** If you wake the reader less than **5 minutes** after putting it to sleep, nothing is downloaded and you go straight back to reading.
@@ -22,8 +24,7 @@ If no network is available, for example when you are out, the **"Connecting to W
    > Tap to cancel.
    - **Don't touch anything:** it syncs as usual.
    - **Tap the message:** sync is cancelled and you are back to reading at once, with no Wi-Fi and no download.
-3. **Sleep is unchanged.** When you put the reader to sleep, KOReader still tries to connect and push your position, as it does without the patch. If there is no network, it turns Wi-Fi off and queues the position, then sends it automatically on the next successful connection.
-
+3. **Sleep is unchanged.** When you put the reader to sleep, KOReader still tries to connect and push your position, as it does without the patch. If there is no network, it turns Wi-Fi off. Positions that could not be sent are queued (see point 4).
 4. **Books finished offline are no longer lost.** If you close a book without a network (for example you finish it on the go and start the next one), KOSync puts its position in a queue to send later. Without the patch the plugin emptied that queue even when sending had failed, typically when you put the reader to sleep at home: it connected, pushed the *new* book, turned Wi-Fi off, and only then tried to send the queue, with no network. The finished book never reached the server. With the patch, for each queued book the reader first asks the server where you are:
    - if the server is further on, or got a position *after* this one was queued (for example you finished the book on another device), the queued position is dropped, so an old position never overwrites a newer one;
    - otherwise it is sent.
@@ -66,6 +67,7 @@ Use an open book. You can do all of this at home, because the message appears be
 2. **Short pause:** put the reader to sleep and wake it after 1–2 minutes. No message, you can read straight away.
 3. **Long pause:** put it to sleep and wake it after more than 5 minutes. The message appears. Don't touch it: after 3 seconds it connects and syncs.
 4. **Sleep:** read a few pages and put the reader to sleep. At home it connects, pushes your position and goes to sleep. Another synced device should show the updated position.
+5. **Book closed offline:** turn on airplane mode (or switch off your router), read a few pages of book A, close it and open book B. Turn the network back on and put the reader to sleep. In `crash.log` you should see `KOSync cancel: queue sent 1 dropped 0 kept 0`, and another device should show book A at the new position. If book A was meanwhile read further on another device, you will see `server is ahead ... queued position dropped` instead, and the server keeps the further position.
 
 In KOReader's log (`crash.log`, in the KOReader folder) the patch writes lines starting with **`KOSync cancel:`**, which help you see what happened.
 
@@ -90,7 +92,7 @@ If your Mac creates a `._2-kosync-cancel-v5.lua` file next to the patch, you can
 
 **Context.** `2-kosync-cancel-v5.lua` is a KOReader *user patch*. At startup KOReader runs, with `dofile`, the files in `koreader/patches/` whose names start with `2-`. This patch uses `userpatch.registerPatchPluginFunc("kosync", fn)` to modify the KOSync plugin class every time the plugin is instantiated, i.e. every time a book is opened. It does not change any KOReader file.
 
-**What it wraps (each wrapper always calls the original):**
+**What it changes (each wrapper always calls the original; `drainQueue` is replaced):**
 
 - `KOSync.getProgress(self, ensure_networking, interactive, ...)`: when `ensure_networking == true`, `interactive == false`, the device is not online (`NetworkMgr:isOnline()`) and the account is configured, it shows an `InfoMessage` with `timeout = WAIT`. On that instance, `onTapClose` and `onAnyKeyPressed` are overridden to mark the tap as "cancelled". In `dismiss_callback`, if the user did not tap, it schedules the original `getProgress` with `UIManager:scheduleIn(0.5, ...)`; if they tapped, it does nothing.
   - **Important:** do not call `getProgress` directly inside `dismiss_callback`. The callback runs inside `InfoMessage:onCloseWidget`, while the message is being torn down, and connecting calls `UIManager:forceRePaint()`. KOReader then tries to repaint the already-freed message and crashes (`textboxwidget.lua: attempt to index field '_bb' (a nil value)`). This was a bug in version 1.
